@@ -10,4 +10,7 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
   ],
+  build: {
+    minify: false, // Desactivar minificación para evitar bug de mermaid en producción
+  },
 })
