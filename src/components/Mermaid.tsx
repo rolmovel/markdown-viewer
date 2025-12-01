@@ -1,17 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 
+// Inicialización básica de Mermaid. Evitamos configurar theme/themeVariables
+// personalizados porque ciertas combinaciones están provocando un error interno
+// en la librería (d3/mermaid) en el bundle de producción.
 mermaid.initialize({
   startOnLoad: false,
-  theme: 'default',
   securityLevel: 'loose',
-  themeVariables: {
-    primaryColor: '#EEF2FF',
-    primaryBorderColor: '#CBD5F5',
-    primaryTextColor: '#1F2933',
-    lineColor: '#CBD5F5',
-    secondaryBorderColor: '#E5E7EB',
-  },
 });
 
 interface MermaidProps {
