@@ -109,7 +109,14 @@ function App() {
     const newDocUrl = handle.url as AutomergeUrl;
 
     setCurrentDocUrl(newDocUrl);
-  }, [currentDocUrl, repo]);
+    
+    // Actualizar la URL para incluir el doc
+    const newSearchParams = new URLSearchParams(window.location.search);
+    if (treeUrl) newSearchParams.set('tree', treeUrl as string);
+    newSearchParams.set('doc', newDocUrl as string);
+    const newPath = `${window.location.pathname}?${newSearchParams.toString()}`;
+    window.history.replaceState({}, '', newPath);
+  }, [currentDocUrl, repo, treeUrl]);
   
   const content = doc?.content ?? '';
   
