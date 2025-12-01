@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900;
+  }
+}
+
+/* Reglas para mejorar cortes de página en PDF */
+.pdf-page h1,
+.pdf-page h2,
+.pdf-page h3,
+.pdf-page h4 {
+  page-break-inside: avoid;
+  break-inside: avoid-page;
+  page-break-after: avoid;
+  break-after: avoid-page;
+}
+
+.pdf-page p,
+.pdf-page ul,
+.pdf-page ol,
+.pdf-page table,
+.pdf-page blockquote,
+.pdf-page pre {
+  page-break-inside: avoid;
+  break-inside: avoid-page;
+}
