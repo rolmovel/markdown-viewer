@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { Download, FileText, Split, Eye, PenTool, Share2 } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
 import Mermaid from './components/Mermaid';
+import KrokiDiagram from './components/KrokiDiagram';
 import { clsx } from 'clsx';
 // @ts-ignore
 import testContent from './test/test.md?raw';
@@ -33,6 +34,8 @@ function App() {
   const [treeUrl, setTreeUrl] = useState<AutomergeUrl | null>(null);
   const [currentDocUrl, setCurrentDocUrl] = useState<AutomergeUrl | null>(null);
   const [isCreatingTree, setIsCreatingTree] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [replaceText, setReplaceText] = useState('');
   
   const searchParams = new URLSearchParams(window.location.search);
   const treeParam = searchParams.get('tree');
@@ -130,6 +133,252 @@ function App() {
         d.content = newContent;
       });
     }
+  };
+
+  const applyTextTransformation = (
+    transform: (full: string, selectionStart: number, selectionEnd: number) => {
+      text: string;
+      newSelectionStart: number;
+      newSelectionEnd: number;
+    },
+  ) => {
+    const textarea = editorRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart ?? 0;
+    const end = textarea.selectionEnd ?? 0;
+
+    const { text, newSelectionStart, newSelectionEnd } = transform(content, start, end);
+    if (text === content) return;
+
+    updateContent(text);
+
+    requestAnimationFrame(() => {
+      if (!editorRef.current) return;
+      editorRef.current.focus();
+      editorRef.current.setSelectionRange(newSelectionStart, newSelectionEnd);
+    });
+  };
+
+  const wrapSelection = (wrapper: string) => {
+    applyTextTransformation((full, start, end) => {
+      const before = full.slice(0, start);
+      const selected = full.slice(start, end) || 'texto';
+      const after = full.slice(end);
+      const wrapped = `${wrapper}${selected}${wrapper}`;
+      const newText = `${before}${wrapped}${after}`;
+      const base = before.length + wrapper.length;
+      return {
+        text: newText,
+        newSelectionStart: base,
+        newSelectionEnd: base + selected.length,
+      };
+    });
+  };
+
+  const insertMermaidTemplate = (kind: string) => {
+    switch (kind) {
+      case 'flowchart':
+        insertBlock('\n```mermaid\ngraph TD\n  A[Inicio] --> B[Paso 1]--> C[Fin]\n```\n');
+        break;
+      case 'sequence':
+        insertBlock('\n```mermaid\nsequenceDiagram\n  participant A as Cliente\n  participant B as Servidor\n  A->>B: Petición\n  B-->>A: Respuesta\n```\n');
+        break;
+      case 'class':
+        insertBlock('\n```mermaid\nclassDiagram\n  Clase01 <|-- Clase02\n  Clase01 : +int id\n  Clase01 : +string nombre\n```\n');
+        break;
+      case 'state':
+        insertBlock('\n```mermaid\nstateDiagram-v2\n  [*] --> Idle\n  Idle --> Running : start\n  Running --> Idle : stop\n```\n');
+        break;
+      case 'er':
+        insertBlock('\n```mermaid\nerDiagram\n  CLIENT ||--o{ ORDER : realiza\n  ORDER }o--o{ PRODUCTO : contiene\n```\n');
+        break;
+      case 'gantt':
+        insertBlock('\n```mermaid\n%%{init: {"theme": "default"}}%%\ngantt\n  title Plan de proyecto\n  dateFormat  YYYY-MM-DD\n  section Fase 1\n  Tarea1 :a1, 2025-01-01, 3d\n  Tarea2 :after a1  , 4d\n```\n');
+        break;
+      case 'pie':
+        insertBlock('\n```mermaid\npie title Distribución\n  "Opción A" : 40\n  "Opción B" : 30\n  "Opción C" : 30\n```\n');
+        break;
+      case 'mindmap':
+        insertBlock('\n```mermaid\nmindmap\n  root((Tema))\n    Idea 1\n    Idea 2\n```\n');
+        break;
+      case 'timeline':
+        insertBlock('\n```mermaid\ntimeline\n  title Hitos\n  2024 : Inicio\n  2025 : Lanzamiento\n```\n');
+        break;
+      default:
+        break;
+    }
+  };
+
+  const insertKrokiTemplate = (kind: string) => {
+    switch (kind) {
+      case 'plantuml':
+        insertBlock('\n```plantuml\n@startuml\nstart\n:Acción 1;\n:Acción 2;\nstop\n@enduml\n```\n');
+        break;
+      case 'c4plantuml':
+        insertBlock('\n```c4plantuml\n@startuml C4_Container\ntitle Sistema ejemplo\n\nPerson(usuario, "Usuario", "Usa el sistema")\nSystem(sistema, "Sistema", "Hace cosas")\n\nRel(usuario, sistema, "Usa")\n@enduml\n```\n');
+        break;
+      case 'structurizr':
+        insertBlock('\n```structurizr\nworkspace "Ejemplo" {\n  model {\n    user = person "Usuario"\n    system = softwareSystem "Sistema"\n    user -> system "Usa"\n  }\n}\n```\n');
+        break;
+      case 'dot':
+        insertBlock('\n```dot\ndigraph G {\n  A -> B;\n  B -> C;\n}\n```\n');
+        break;
+      case 'd2':
+        insertBlock('\n```d2\nA: "Inicio"\nB: "Fin"\nA -> B: "flujo"\n```\n');
+        break;
+      case 'erd':
+        insertBlock('\n```erd\n[Usuario] {\n  *id\n  nombre\n}\n[Pedido] {\n  *id\n  fecha\n}\nUsuario ||--o{ Pedido\n```\n');
+        break;
+      case 'bpmn':
+        insertBlock('\n```bpmn\n<bpmn:definitions ...>\n  <!-- Diagrama BPMN aquí -->\n</bpmn:definitions>\n```\n');
+        break;
+      case 'blockdiag':
+        insertBlock('\n```blockdiag\nblockdiag {\n  A -> B -> C;\n}\n```\n');
+        break;
+      case 'seqdiag':
+        insertBlock('\n```seqdiag\nseqdiag {\n  A -> B [label = "mensaje"];\n}\n```\n');
+        break;
+      case 'actdiag':
+        insertBlock('\n```actdiag\nactdiag {\n  A -> B -> C;\n}\n```\n');
+        break;
+      case 'nwdiag':
+        insertBlock('\n```nwdiag\nnwdiag {\n  network net {\n    server1; server2;\n  }\n}\n```\n');
+        break;
+      case 'packetdiag':
+        insertBlock('\n```packetdiag\npacketdiag {\n  0-15: Header;\n  16-31: Data;\n}\n```\n');
+        break;
+      case 'rackdiag':
+        insertBlock('\n```rackdiag\nrackdiag {\n  1: Server1;\n  2: Server2;\n}\n```\n');
+        break;
+      case 'bytefield':
+        insertBlock('\n```bytefield\nbytefield {\n  0-7: Campo1;\n  8-15: Campo2;\n}\n```\n');
+        break;
+      case 'nomnoml':
+        insertBlock('\n```nomnoml\n[Usuario]->[Sistema]\n```\n');
+        break;
+      case 'pikchr':
+        insertBlock('\n```pikchr\nbox "Inicio"; arrow; box "Fin";\n```\n');
+        break;
+      case 'svgbob':
+        insertBlock('\n```svgbob\n+----+    +----+\n| A  |--> | B  |\n+----+    +----+\n```\n');
+        break;
+      case 'symbolator':
+        insertBlock('\n```symbolator\nmodule top();\n  // Señales aquí\nendmodule\n```\n');
+        break;
+      case 'umlet':
+        insertBlock('\n```umlet\n@startuml\n:Actividad;\n@enduml\n```\n');
+        break;
+      case 'vega':
+        insertBlock('\n```vega\n{\n  "$schema": "https://vega.github.io/schema/vega/v5.json",\n  "description": "Gráfico ejemplo",\n  "data": [{ "name": "table", "values": [ {"x": 1, "y": 2} ] }]\n}\n```\n');
+        break;
+      case 'vegalite':
+        insertBlock('\n```vegalite\n{\n  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",\n  "description": "Gráfico ejemplo",\n  "data": {"values": [ {"x": 1, "y": 2} ]},\n  "mark": "bar",\n  "encoding": {"x": {"field": "x", "type": "quantitative"}, "y": {"field": "y", "type": "quantitative"}}\n}\n```\n');
+        break;
+      case 'wavedrom':
+        insertBlock('\n```wavedrom\n{ signal: [ { name: "clk", wave: "p...." } ] }\n```\n');
+        break;
+      case 'wireviz':
+        insertBlock('\n```wireviz\nconnectors:\n  J1: { type: D-Sub, size: 9 }\n```\n');
+        break;
+      case 'ditaa':
+        insertBlock('\n```ditaa\n+--------+\n|  A     |\n+---+----+\n    |\n+---v----+\n|   B    |\n+--------+\n```\n');
+        break;
+      default:
+        insertBlock(`\n\n\`\`\`${kind}\n// TODO: escribe tu diagrama ${kind} aquí\n\`\`\`\n`);
+        break;
+    }
+  };
+
+  const insertLink = () => {
+    const url = window.prompt('URL del enlace:');
+    if (!url) return;
+
+    applyTextTransformation((full, start, end) => {
+      const before = full.slice(0, start);
+      const selected = full.slice(start, end) || 'texto';
+      const after = full.slice(end);
+      const link = `[${selected}](${url})`;
+      const newText = `${before}${link}${after}`;
+      const labelStart = before.length + 1; // después de '['
+      return {
+        text: newText,
+        newSelectionStart: labelStart,
+        newSelectionEnd: labelStart + selected.length,
+      };
+    });
+  };
+
+  const toggleHeading = (level: 1 | 2 | 3) => {
+    applyTextTransformation((full, start) => {
+      const lineStart = full.lastIndexOf('\n', start - 1) + 1;
+      const lineEnd = full.indexOf('\n', start);
+      const end = lineEnd === -1 ? full.length : lineEnd;
+      const line = full.slice(lineStart, end).replace(/^#+\s*/, '');
+      const prefix = '#'.repeat(level) + ' ';
+      const newLine = prefix + (line || 'Título');
+      const newText = full.slice(0, lineStart) + newLine + full.slice(end);
+      const caret = lineStart + prefix.length;
+      return {
+        text: newText,
+        newSelectionStart: caret,
+        newSelectionEnd: caret + (line || 'Título').length,
+      };
+    });
+  };
+
+  const insertBlock = (block: string) => {
+    applyTextTransformation((full, start, end) => {
+      const before = full.slice(0, start);
+      const after = full.slice(end);
+      const insertion = block;
+      const newText = `${before}${insertion}${after}`;
+      const caret = before.length + insertion.length;
+      return {
+        text: newText,
+        newSelectionStart: caret,
+        newSelectionEnd: caret,
+      };
+    });
+  };
+
+  const handleSearchNext = () => {
+    if (!searchText) return;
+    const textarea = editorRef.current;
+    const haystack = content;
+    const from = textarea ? textarea.selectionEnd : 0;
+    let index = haystack.indexOf(searchText, from);
+    if (index === -1) {
+      index = haystack.indexOf(searchText, 0);
+      if (index === -1) return;
+    }
+    const start = index;
+    const end = index + searchText.length;
+    requestAnimationFrame(() => {
+      if (!editorRef.current) return;
+      editorRef.current.focus();
+      editorRef.current.setSelectionRange(start, end);
+    });
+  };
+
+  const handleReplaceNext = () => {
+    if (!searchText) return;
+    const textarea = editorRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart ?? 0;
+    const end = textarea.selectionEnd ?? 0;
+    const selected = content.slice(start, end);
+    if (selected === searchText && replaceText !== undefined) {
+      const newText = content.slice(0, start) + replaceText + content.slice(end);
+      updateContent(newText);
+      const caret = start + replaceText.length;
+      requestAnimationFrame(() => {
+        if (!editorRef.current) return;
+        editorRef.current.focus();
+        editorRef.current.setSelectionRange(caret, caret);
+      });
+    }
+    handleSearchNext();
   };
 
 
@@ -232,6 +481,168 @@ function App() {
             <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider">
               Editor (Markdown)
             </div>
+            <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-slate-100 bg-white text-xs text-slate-600">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => wrapSelection('**')}
+                  className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100"
+                >
+                  B
+                </button>
+                <button
+                  type="button"
+                  onClick={() => wrapSelection('*')}
+                  className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100"
+                >
+                  I
+                </button>
+                <button
+                  type="button"
+                  onClick={() => wrapSelection('`')}
+                  className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100"
+                >
+                  {'</>'}
+                </button>
+                <button
+                  type="button"
+                  onClick={insertLink}
+                  className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100"
+                >
+                  Link
+                </button>
+              </div>
+              <div className="flex items-center gap-1 border-l border-slate-200 pl-2">
+                <button
+                  type="button"
+                  onClick={() => toggleHeading(1)}
+                  className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100"
+                >
+                  H1
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleHeading(2)}
+                  className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100"
+                >
+                  H2
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleHeading(3)}
+                  className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100"
+                >
+                  H3
+                </button>
+              </div>
+              <div className="flex items-center gap-1 border-l border-slate-200 pl-2">
+                <button
+                  type="button"
+                  onClick={() => insertBlock('\n- elemento\n')}
+                  className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100"
+                >
+                  Lista
+                </button>
+                <select
+                  className="px-1 py-1 border border-slate-200 rounded text-xs bg-white"
+                  defaultValue=""
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (!v) return;
+                    insertMermaidTemplate(v);
+                    e.target.value = '';
+                  }}
+                >
+                  <option value="" disabled>
+                    Mermaid
+                  </option>
+                  <option value="flowchart">Flujo (graph TD)</option>
+                  <option value="sequence">Secuencia</option>
+                  <option value="class">Clases</option>
+                  <option value="state">Estados</option>
+                  <option value="er">ER</option>
+                  <option value="gantt">Gantt</option>
+                  <option value="pie">Pie</option>
+                  <option value="mindmap">Mindmap</option>
+                  <option value="timeline">Timeline</option>
+                </select>
+                <select
+                  className="px-1 py-1 border border-slate-200 rounded text-xs bg-white"
+                  defaultValue=""
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (!v) return;
+                    insertKrokiTemplate(v);
+                    e.target.value = '';
+                  }}
+                >
+                  <option value="" disabled>
+                    Kroki
+                  </option>
+                  <option value="plantuml">plantuml</option>
+                  <option value="c4plantuml">c4plantuml</option>
+                  <option value="structurizr">structurizr</option>
+                  <option value="dot">dot / graphviz</option>
+                  <option value="d2">d2</option>
+                  <option value="erd">erd</option>
+                  <option value="bpmn">bpmn</option>
+                  <option value="blockdiag">blockdiag</option>
+                  <option value="seqdiag">seqdiag</option>
+                  <option value="actdiag">actdiag</option>
+                  <option value="nwdiag">nwdiag</option>
+                  <option value="packetdiag">packetdiag</option>
+                  <option value="rackdiag">rackdiag</option>
+                  <option value="bytefield">bytefield</option>
+                  <option value="nomnoml">nomnoml</option>
+                  <option value="pikchr">pikchr</option>
+                  <option value="svgbob">svgbob</option>
+                  <option value="symbolator">symbolator</option>
+                  <option value="umlet">umlet</option>
+                  <option value="vega">vega</option>
+                  <option value="vegalite">vegalite</option>
+                  <option value="wavedrom">wavedrom</option>
+                  <option value="wireviz">wireviz</option>
+                  <option value="ditaa">ditaa</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => insertBlock('\n```\n// código\n```\n')}
+                  className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100"
+                >
+                  Código
+                </button>
+              </div>
+              <div className="flex-1 min-w-[260px] flex flex-wrap items-center gap-1 border-l border-slate-200 pl-2">
+                <input
+                  type="text"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  placeholder="Buscar"
+                  className="min-w-[120px] flex-1 px-2 py-1 border border-slate-200 rounded text-xs"
+                />
+                <input
+                  type="text"
+                  value={replaceText}
+                  onChange={(e) => setReplaceText(e.target.value)}
+                  placeholder="Reemplazar"
+                  className="min-w-[120px] flex-1 px-2 py-1 border border-slate-200 rounded text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={handleSearchNext}
+                  className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100"
+                >
+                  Buscar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReplaceNext}
+                  className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100"
+                >
+                  Reemplazar
+                </button>
+              </div>
+            </div>
             {currentDocUrl ? (
               <textarea
                 ref={editorRef}
@@ -284,10 +695,56 @@ function App() {
                   code(props: any) {
                     const {children, className, node, ...rest} = props;
                     const match = /language-(\w+)/.exec(className || '');
-                    const isMermaid = match && match[1] === 'mermaid';
+                    const lang = match?.[1];
 
-                    if (isMermaid) {
+                    // Mermaid sigue yendo por el componente específico (lazy load)
+                    if (lang === 'mermaid') {
                       return <Mermaid chart={String(children).replace(/\n$/, '')} />;
+                    }
+
+                    // Mapeo de lenguajes a tipos de Kroki
+                    const krokiTypeByLang: Record<string, string> = {
+                      // Core
+                      plantuml: 'plantuml',
+                      mermaid: 'mermaid',
+                      dot: 'graphviz',
+                      graphviz: 'graphviz',
+                      er: 'erd',
+                      erd: 'erd',
+
+                      // BlockDiag family
+                      blockdiag: 'blockdiag',
+                      seqdiag: 'seqdiag',
+                      actdiag: 'actdiag',
+                      nwdiag: 'nwdiag',
+                      packetdiag: 'packetdiag',
+                      rackdiag: 'rackdiag',
+
+                      // Otros tipos soportados
+                      bpmn: 'bpmn',
+                      bytefield: 'bytefield',
+                      c4plantuml: 'c4plantuml',
+                      d2: 'd2',
+                      ditaa: 'ditaa',
+                      nomnoml: 'nomnoml',
+                      pikchr: 'pikchr',
+                      svgbob: 'svgbob',
+                      structurizr: 'structurizr',
+                      symbolator: 'symbolator',
+                      umlet: 'umlet',
+                      vega: 'vega',
+                      vegalite: 'vegalite',
+                      wavedrom: 'wavedrom',
+                      wireviz: 'wireviz',
+                    };
+
+                    if (lang && krokiTypeByLang[lang]) {
+                      return (
+                        <KrokiDiagram
+                          type={krokiTypeByLang[lang]}
+                          code={String(children)}
+                        />
+                      );
                     }
 
                     return match ? (

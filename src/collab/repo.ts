@@ -3,8 +3,8 @@ import { WebSocketClientAdapter } from '@automerge/automerge-repo-network-websoc
 import { BroadcastChannelNetworkAdapter } from '@automerge/automerge-repo-network-broadcastchannel';
 import { IndexedDBStorageAdapter } from '@automerge/automerge-repo-storage-indexeddb';
 
-// Adaptador principal: servidor de sincronización público de Automerge
-const wsAdapter = new WebSocketClientAdapter('wss://sync.automerge.org');
+// Adaptador principal: servidor de sincronización local (Docker)
+const wsAdapter = new WebSocketClientAdapter('ws://localhost:3030');
 
 // Opcional: BroadcastChannel para mejorar sync entre pestañas del mismo navegador
 const broadcastAdapter = new BroadcastChannelNetworkAdapter();
@@ -16,5 +16,5 @@ export const repo = new Repo({
 
 // Debug mínimos
 console.log('[Automerge] Repo inicializado con WebSocket + BroadcastChannel');
-console.log('[Automerge] Network:', 'wss://sync.automerge.org + BroadcastChannel');
+console.log('[Automerge] Network:', 'ws://localhost:3030 + BroadcastChannel');
 console.log('[Automerge] Storage:', 'IndexedDB');

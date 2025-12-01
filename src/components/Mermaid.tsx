@@ -18,12 +18,13 @@ const Mermaid: React.FC<MermaidProps> = ({ chart }) => {
       if (!containerRef.current) return;
       
       try {
-        // Usar mermaid cargado desde CDN (window.mermaid)
-        const mermaid = (window as any).mermaid;
-        
+        let mermaid = (window as any).mermaid;
+
+        // Si mermaid aún no está en window (por CDN), intentar importarlo dinámicamente
         if (!mermaid) {
-          setError('Mermaid no está disponible');
-          return;
+          const mod = await import('mermaid');
+          mermaid = mod.default || mod;
+          (window as any).mermaid = mermaid;
         }
         
         // Inicializar solo una vez

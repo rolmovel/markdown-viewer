@@ -10,13 +10,20 @@
 
 /* Reglas para mejorar cortes de página en PDF */
 .pdf-page h1,
-.pdf-page h2,
 .pdf-page h3,
 .pdf-page h4 {
   page-break-inside: avoid;
   break-inside: avoid-page;
   page-break-after: avoid;
   break-after: avoid-page;
+}
+
+/* Cada h2 comienza en nueva página en el PDF */
+.pdf-page h2 {
+  page-break-before: always;
+  break-before: page;
+  page-break-inside: avoid;
+  break-inside: avoid-page;
 }
 
 .pdf-page p,

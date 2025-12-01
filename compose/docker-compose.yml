@@ -1,0 +1,21 @@
+version: '3.9'
+
+services:
+  automerge-sync:
+    image: ghcr.io/automerge/automerge-repo-sync-server:main
+    container_name: automerge-sync
+    restart: unless-stopped
+    ports:
+      - "3030:3030"
+    environment:
+      - PORT=3030
+      - DATA_DIR=/data
+    volumes:
+      - ./data/automerge:/data
+
+  kroki:
+    image: yuzutech/kroki
+    container_name: kroki
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
