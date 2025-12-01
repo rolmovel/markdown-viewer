@@ -70,7 +70,7 @@ function App() {
   }, [repo, treeParam, treeUrl, isCreatingTree]);
 
   // Hook para el árbol de directorios
-  const [treeDoc, changeTreeDoc] = useDocument<DirectoryTreeDoc>(treeUrl ?? undefined);
+  const [treeDoc] = useDocument<DirectoryTreeDoc>(treeUrl ?? undefined);
 
   // Sincronizar currentDocUrl con el parámetro doc
   useEffect(() => {
