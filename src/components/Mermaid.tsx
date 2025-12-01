@@ -1,13 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import mermaid from 'mermaid';
 
-// Inicialización básica de Mermaid. Evitamos configurar theme/themeVariables
-// personalizados porque ciertas combinaciones están provocando un error interno
-// en la librería (d3/mermaid) en el bundle de producción.
-mermaid.initialize({
-  startOnLoad: false,
-  securityLevel: 'loose',
-});
+// Lazy loading de Mermaid: no lo importamos en top-level para evitar
+// problemas de inicialización en el bundle minificado de producción.
+// En su lugar, lo cargamos dinámicamente cuando se necesita.
 
 interface MermaidProps {
   chart: string;
@@ -23,13 +18,21 @@ const Mermaid: React.FC<MermaidProps> = ({ chart }) => {
       if (!containerRef.current) return;
       
       try {
+        // Importar mermaid dinámicamente
+        const mermaid = (await import('mermaid')).default;
+        
+        // Inicializar solo una vez
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'loose',
+        });
+        
         const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
         const { svg } = await mermaid.render(id, chart);
         setSvg(svg);
         setError(null);
       } catch (err) {
         console.error('Mermaid render error:', err);
-        // Mermaid a veces deja basura en el DOM si falla
         setError('Error al renderizar diagrama');
       }
     };

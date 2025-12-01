@@ -3,7 +3,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Download, FileText, Split, Eye, PenTool, Share2 } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
-// import Mermaid from './components/Mermaid'; // Temporalmente desactivado para debug en Vercel
+import Mermaid from './components/Mermaid';
 import { clsx } from 'clsx';
 // @ts-ignore
 import testContent from './test/test.md?raw';
@@ -276,12 +276,7 @@ function App() {
                     const isMermaid = match && match[1] === 'mermaid';
 
                     if (isMermaid) {
-                      // Mermaid temporalmente desactivado para debug en Vercel
-                      return (
-                        <pre {...rest} className={className}>
-                          {children}
-                        </pre>
-                      );
+                      return <Mermaid chart={String(children).replace(/\n$/, '')} />;
                     }
 
                     return match ? (
