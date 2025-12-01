@@ -5,6 +5,11 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>windsurf-project</title>
+    <script type="module">
+      // Cargar Mermaid desde CDN para evitar problemas de empaquetado
+      import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+      window.mermaid = mermaid;
+    </script>
   </head>
   <body>
     <div id="root"></div>

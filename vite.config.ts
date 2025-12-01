@@ -11,6 +11,9 @@ export default defineConfig({
     topLevelAwait(),
   ],
   build: {
-    minify: false, // Desactivar minificación para evitar bug de mermaid en producción
+    minify: 'esbuild', // Reactivar minificación ahora que mermaid viene del CDN
+    rollupOptions: {
+      external: ['mermaid'], // Excluir mermaid del bundle
+    },
   },
 })
