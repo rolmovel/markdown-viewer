@@ -1,21 +1,20 @@
 import { Repo } from '@automerge/automerge-repo';
+import { WebSocketClientAdapter } from '@automerge/automerge-repo-network-websocket';
 import { BroadcastChannelNetworkAdapter } from '@automerge/automerge-repo-network-broadcastchannel';
 import { IndexedDBStorageAdapter } from '@automerge/automerge-repo-storage-indexeddb';
 
-// Usar BroadcastChannel para sincronización entre pestañas del mismo navegador
-// Esto funciona sin necesidad de servidor externo
+// Adaptador principal: servidor de sincronización público de Automerge
+const wsAdapter = new WebSocketClientAdapter('wss://sync.automerge.org');
+
+// Opcional: BroadcastChannel para mejorar sync entre pestañas del mismo navegador
 const broadcastAdapter = new BroadcastChannelNetworkAdapter();
 
 export const repo = new Repo({
-  network: [broadcastAdapter],
+  network: [wsAdapter, broadcastAdapter],
   storage: new IndexedDBStorageAdapter(),
 });
 
-// Debug: logs de conexión
-console.log('[Automerge] Repo inicializado con BroadcastChannel (sync entre pestañas)');
+// Debug mínimos
+console.log('[Automerge] Repo inicializado con WebSocket + BroadcastChannel');
+console.log('[Automerge] Network:', 'wss://sync.automerge.org + BroadcastChannel');
 console.log('[Automerge] Storage:', 'IndexedDB');
-
-// Log cuando se carga un documento
-repo.on('document', ({ handle }) => {
-  console.log('[Automerge] Documento cargado:', handle.url);
-});

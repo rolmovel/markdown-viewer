@@ -98,9 +98,13 @@ function App() {
   // Hook oficial para leer/escribir el documento activo
   const [doc, changeDoc] = useDocument<MarkdownDoc>(currentDocUrl ?? undefined);
 
-  // Si no hay documento actual seleccionado, crear uno nuevo automáticamente
+  // Si no hay documento actual seleccionado **y tampoco viene uno en la URL**, crear uno nuevo automáticamente
   useEffect(() => {
+    // Si ya tenemos doc seleccionado, no hacer nada
     if (currentDocUrl) return;
+
+    // Si la URL ya trae un doc=automerge:..., respetarlo y no crear uno nuevo
+    if (docParam && docParam.startsWith('automerge:')) return;
 
     const handle = repo.create<MarkdownDoc>();
     handle.change((d: MarkdownDoc) => {
@@ -116,7 +120,7 @@ function App() {
     newSearchParams.set('doc', newDocUrl as string);
     const newPath = `${window.location.pathname}?${newSearchParams.toString()}`;
     window.history.replaceState({}, '', newPath);
-  }, [currentDocUrl, repo, treeUrl]);
+  }, [currentDocUrl, repo, treeUrl, docParam]);
   
   const content = doc?.content ?? '';
   
