@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Download, FileText, Split, Eye, PenTool, Share2, MessageCircle } from 'lucide-react';
+import { Download, FileText, Split, Eye, PenTool, Share2 } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
 import Mermaid from './components/Mermaid';
 import { clsx } from 'clsx';
@@ -10,7 +10,6 @@ import testContent from './test/test.md?raw';
 import { useRepo, useDocument } from '@automerge/automerge-repo-react-hooks';
 import type { AutomergeUrl } from '@automerge/automerge-repo';
 import type { DirectoryTreeDoc, TreeNode } from './collab/directoryTypes';
-import type { MarkdownHistoryDoc } from './collab/historyTypes';
 
 // Tipo del documento colaborativo
 interface MarkdownDoc {
@@ -28,25 +27,11 @@ function findNodeById(node: TreeNode, id: string): TreeNode | null {
   return null;
 }
 
-// Comprobar si candidateId está dentro del subárbol de parent
-function isDescendant(parent: TreeNode, candidateId: string): boolean {
-  if (!parent.children) return false;
-  for (const child of parent.children) {
-    if (child.id === candidateId) return true;
-    if (isDescendant(child, candidateId)) return true;
-  }
-  return false;
-}
-
 function App() {
   const repo = useRepo();
   const [viewMode, setViewMode] = useState<'split' | 'edit' | 'preview'>('split');
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [selectionStart, setSelectionStart] = useState<number | null>(null);
-  const [selectionEnd, setSelectionEnd] = useState<number | null>(null);
   const [treeUrl, setTreeUrl] = useState<AutomergeUrl | null>(null);
   const [currentDocUrl, setCurrentDocUrl] = useState<AutomergeUrl | null>(null);
-  const [currentHistoryUrl, setCurrentHistoryUrl] = useState<AutomergeUrl | null>(null);
   const [isCreatingTree, setIsCreatingTree] = useState(false);
   
   const searchParams = new URLSearchParams(window.location.search);
@@ -113,9 +98,6 @@ function App() {
   // Hook oficial para leer/escribir el documento activo
   const [doc, changeDoc] = useDocument<MarkdownDoc>(currentDocUrl ?? undefined);
 
-  // Hook para el historial del documento activo
-  const [historyDoc, changeHistoryDoc] = useDocument<MarkdownHistoryDoc>(currentHistoryUrl ?? undefined);
- 
   // Si no hay documento actual seleccionado, crear uno nuevo automáticamente
   useEffect(() => {
     if (currentDocUrl) return;
@@ -126,16 +108,7 @@ function App() {
     });
     const newDocUrl = handle.url as AutomergeUrl;
 
-    const historyHandle = repo.create<MarkdownHistoryDoc>();
-    historyHandle.change((h: MarkdownHistoryDoc) => {
-      h.docUrl = newDocUrl;
-      h.commits = [];
-      delete h.headId;
-    });
-    const newHistoryUrl = historyHandle.url as AutomergeUrl;
-
     setCurrentDocUrl(newDocUrl);
-    setCurrentHistoryUrl(newHistoryUrl);
   }, [currentDocUrl, repo]);
   
   const content = doc?.content ?? '';
@@ -148,257 +121,6 @@ function App() {
     }
   };
 
-  const createFileInFolder = (folderId: string) => {
-    if (!changeTreeDoc) return;
-
-    // Crear documento de contenido
-    const handle = repo.create<MarkdownDoc>();
-    handle.change((d: MarkdownDoc) => {
-      d.content = '# Nuevo documento\n';
-    });
-    const newDocUrl = handle.url as AutomergeUrl;
-
-    // Crear documento de historial asociado a este archivo
-    const historyHandle = repo.create<MarkdownHistoryDoc>();
-    historyHandle.change((h: MarkdownHistoryDoc) => {
-      h.docUrl = newDocUrl;
-      h.commits = [];
-      delete h.headId;
-    });
-    const newHistoryUrl = historyHandle.url as AutomergeUrl;
-
-    const newId = crypto.randomUUID();
-
-    changeTreeDoc((t: DirectoryTreeDoc) => {
-      const folder = findNodeById(t.root, folderId);
-      if (!folder || folder.type !== 'folder') return;
-      if (!folder.children) folder.children = [];
-      folder.children.push({
-        id: newId,
-        name: 'Nuevo documento',
-        type: 'file',
-        docUrl: newDocUrl,
-        historyUrl: newHistoryUrl,
-      });
-      t.currentFileId = newId;
-    });
-
-    setCurrentDocUrl(newDocUrl);
-    setCurrentHistoryUrl(newHistoryUrl);
-
-    const newSearchParams = new URLSearchParams(window.location.search);
-    if (treeUrl) newSearchParams.set('tree', treeUrl as string);
-    newSearchParams.set('doc', newDocUrl as string);
-    const newPath = `${window.location.pathname}?${newSearchParams.toString()}`;
-    window.history.replaceState({}, '', newPath);
-  };
-
-  const createFolderInFolder = (folderId: string) => {
-    if (!changeTreeDoc) return;
-
-    const newId = crypto.randomUUID();
-    changeTreeDoc((t: DirectoryTreeDoc) => {
-      const folder = findNodeById(t.root, folderId);
-      if (!folder || folder.type !== 'folder') return;
-      if (!folder.children) folder.children = [];
-      folder.children.push({
-        id: newId,
-        name: 'Nueva carpeta',
-        type: 'folder',
-        children: [],
-      });
-    });
-  };
-
-  // (Temporal) Creación dentro de carpeta: aún sin implementar lógica completa
-  const handleCreateFolderInNode = (_parent: TreeNode) => {
-    // TODO: implementar creación de subcarpetas dentro de cualquier carpeta
-  };
-
-  const handleCreateFileInNode = (_parent: TreeNode) => {
-    // TODO: implementar creación de documentos dentro de cualquier carpeta
-  };
-
-  // Mover un nodo a otra carpeta (botón antiguo): delegar en DnD o mostrar aviso
-  const handleMoveNode = (_node: TreeNode) => {
-    alert('Para mover elementos usa arrastrar y soltar sobre la carpeta destino.');
-  };
-
-  // Mover por IDs (usado por DnD en la sidebar)
-  const handleMoveByIds = (sourceId: string, targetFolderId: string) => {
-    if (!changeTreeDoc || !treeDoc) return;
-
-    // Evitar mover carpeta dentro de sí misma o de un descendiente
-    const sourceNode = findNodeById(treeDoc.root, sourceId);
-    const targetNode = findNodeById(treeDoc.root, targetFolderId);
-    if (!sourceNode || !targetNode || targetNode.type !== 'folder') return;
-    if (sourceNode.type === 'folder' && isDescendant(sourceNode, targetFolderId)) return;
-
-    changeTreeDoc((t: DirectoryTreeDoc) => {
-      let movedNodePlain: TreeNode | null = null;
-
-      const removeFrom = (parent: TreeNode) => {
-        if (!parent.children) return;
-        parent.children = parent.children.filter(child => {
-          if (child.id === sourceId) {
-            // Clonar a un objeto JS plano para evitar referencias al documento Automerge
-            movedNodePlain = JSON.parse(JSON.stringify(child)) as TreeNode;
-            return false;
-          }
-          removeFrom(child);
-          return true;
-        });
-      };
-
-      removeFrom(t.root);
-      if (!movedNodePlain) return;
-
-      const folder = findNodeById(t.root, targetFolderId);
-      if (!folder || folder.type !== 'folder') return;
-      if (!folder.children) folder.children = [];
-      folder.children.push(movedNodePlain);
-    });
-  };
-
-  // Crear un nuevo documento Markdown en la raíz del árbol
-  const handleCreateFileInRoot = () => {
-    if (!treeUrl || !treeDoc) return;
-    createFileInFolder(treeDoc.root.id);
-  };
-
-  // Crear una nueva carpeta en la raíz del árbol
-  const handleCreateFolderInRoot = () => {
-    if (!treeDoc) return;
-    createFolderInFolder(treeDoc.root.id);
-  };
-
-  // Renombrar un nodo (carpeta o documento)
-  const handleRenameNode = (node: TreeNode) => {
-    if (!changeTreeDoc) return;
-
-    const newName = window.prompt('Nuevo nombre', node.name);
-    if (!newName || !newName.trim()) return;
-
-    changeTreeDoc((t: DirectoryTreeDoc) => {
-      const target = findNodeById(t.root, node.id);
-      if (target) {
-        target.name = newName.trim();
-      }
-    });
-  };
-
-  // Eliminar un nodo (carpeta o documento) del árbol
-  const handleDeleteNode = (node: TreeNode) => {
-    if (!changeTreeDoc || !treeDoc) return;
-
-    const confirmed = window.confirm(
-      node.type === 'folder'
-        ? '¿Eliminar la carpeta y todo su contenido?'
-        : '¿Eliminar este documento del árbol?'
-    );
-    if (!confirmed) return;
-
-    changeTreeDoc((t: DirectoryTreeDoc) => {
-      const removeFrom = (parent: TreeNode) => {
-        if (!parent.children) return;
-        parent.children = parent.children.filter(child => {
-          if (child.id === node.id) return false;
-          removeFrom(child);
-          return true;
-        });
-      };
-      removeFrom(t.root);
-
-      if (t.currentFileId === node.id) {
-        t.currentFileId = undefined;
-      }
-    });
-
-    // Si el documento activo es el que se borra, limpiar selección y URL
-    if (node.type === 'file' && node.docUrl === currentDocUrl) {
-      setCurrentDocUrl(null);
-      const params = new URLSearchParams(window.location.search);
-      params.delete('doc');
-      const path = `${window.location.pathname}?${params.toString()}`;
-      window.history.replaceState({}, '', path);
-    }
-  };
-
-  // Seleccionar un archivo desde el árbol
-  const handleSelectFile = (node: TreeNode) => {
-    if (node.type !== 'file' || !node.docUrl) return;
-
-    // Asegurar que el archivo tiene un documento de historial asociado
-    let historyUrl = node.historyUrl;
-    if (!historyUrl) {
-      const historyHandle = repo.create<MarkdownHistoryDoc>();
-      historyHandle.change((h: MarkdownHistoryDoc) => {
-        h.docUrl = node.docUrl as AutomergeUrl;
-        h.commits = [];
-        delete h.headId;
-      });
-      historyUrl = historyHandle.url as AutomergeUrl;
-
-      if (changeTreeDoc) {
-        const createdHistoryUrl = historyUrl;
-        changeTreeDoc((t: DirectoryTreeDoc) => {
-          const target = findNodeById(t.root, node.id);
-          if (target && target.type === 'file') {
-            target.historyUrl = createdHistoryUrl;
-          }
-        });
-      }
-    }
-
-    setCurrentDocUrl(node.docUrl);
-    setCurrentHistoryUrl(historyUrl ?? null);
-
-    if (changeTreeDoc) {
-      changeTreeDoc((t: DirectoryTreeDoc) => {
-        t.currentFileId = node.id;
-      });
-    }
-
-    const newSearchParams = new URLSearchParams(window.location.search);
-    if (treeUrl) newSearchParams.set('tree', treeUrl as string);
-    newSearchParams.set('doc', node.docUrl);
-    const newPath = `${window.location.pathname}?${newSearchParams.toString()}`;
-    window.history.replaceState({}, '', newPath);
-  };
-
-  const handleSaveVersion = () => {
-    if (!changeHistoryDoc || !historyDoc) {
-      alert('No hay historial cargado para este documento.');
-      return;
-    }
-
-    const headId = historyDoc.headId;
-    if (headId) {
-      const headCommit = historyDoc.commits?.find(c => c.id === headId);
-      if (headCommit && headCommit.content === content) {
-        alert('No hay cambios desde la última versión.');
-        return;
-      }
-    }
-
-    const message = window.prompt('Mensaje para esta versión:', 'Guardado rápido');
-    if (!message || !message.trim()) return;
-
-    const newCommitId = crypto.randomUUID();
-
-    changeHistoryDoc(h => {
-      if (!h.commits) h.commits = [];
-      const parents = h.headId ? [h.headId] : [];
-      h.commits.push({
-        id: newCommitId,
-        parents,
-        createdAt: Date.now(),
-        message: message.trim(),
-        content,
-      });
-      h.headId = newCommitId;
-    });
-  };
 
   // Función para copiar el enlace de colaboración
   const copyShareLink = () => {
@@ -504,11 +226,6 @@ function App() {
                 ref={editorRef}
                 value={content}
                 onChange={(e) => updateContent(e.target.value)}
-                onSelect={(e) => {
-                  const target = e.target as HTMLTextAreaElement;
-                  setSelectionStart(target.selectionStart);
-                  setSelectionEnd(target.selectionEnd);
-                }}
                 className="flex-1 w-full p-6 resize-none outline-none font-mono text-sm leading-relaxed text-slate-800"
                 placeholder="Escribe tu markdown aquí..."
                 spellCheck={false}
