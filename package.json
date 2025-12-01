@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@automerge/automerge-repo": "^2.5.0",
+    "@automerge/automerge-repo-network-broadcastchannel": "^2.5.0",
     "@automerge/automerge-repo-network-websocket": "^2.5.0",
     "@automerge/automerge-repo-react-hooks": "^2.5.0",
     "@automerge/automerge-repo-storage-indexeddb": "^2.5.0",
