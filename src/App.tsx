@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Download, FileText, Split, Eye, PenTool, Share2 } from 'lucide-react';
+import { Download, FileText, Split, Eye, PenTool, Share2, Clock } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
 import Mermaid from './components/Mermaid';
 import KrokiDiagram from './components/KrokiDiagram';
@@ -11,6 +11,7 @@ import testContent from './test/test.md?raw';
 import { useRepo, useDocument } from '@automerge/automerge-repo-react-hooks';
 import type { AutomergeUrl } from '@automerge/automerge-repo';
 import type { DirectoryTreeDoc, TreeNode } from './collab/directoryTypes';
+import type { MarkdownHistoryDoc, DocCommit } from './collab/historyTypes';
 import DiagramHelpModal from './components/DiagramHelpModal';
 
 // Tipo del documento colaborativo
@@ -29,6 +30,7 @@ interface Annotation {
 interface MarkdownDoc {
   content: string;
   annotations: Annotation[];
+  historyUrl?: AutomergeUrl;
 }
 
 // Utilidad para buscar un nodo en el árbol por id
@@ -37,6 +39,17 @@ function findNodeById(node: TreeNode, id: string): TreeNode | null {
   if (!node.children) return null;
   for (const child of node.children) {
     const found = findNodeById(child, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+// Buscar nodo por docUrl (para enlazar historial compartido)
+function findNodeByDocUrl(node: TreeNode, docUrl: AutomergeUrl): TreeNode | null {
+  if (node.docUrl === docUrl) return node;
+  if (!node.children) return null;
+  for (const child of node.children) {
+    const found = findNodeByDocUrl(child, docUrl);
     if (found) return found;
   }
   return null;
@@ -65,6 +78,12 @@ function App() {
   const [pendingAnnotationRange, setPendingAnnotationRange] = useState<{ start: number; end: number } | null>(null);
   const [pendingAnnotationBody, setPendingAnnotationBody] = useState('');
   const [isAnnotationsOpen, setIsAnnotationsOpen] = useState(true);
+  const [sidePanelTab, setSidePanelTab] = useState<'annotations' | 'history'>('annotations');
+  const [historyDocUrl, setHistoryDocUrl] = useState<AutomergeUrl | null>(null);
+  const [isHistoryPreviewOpen, setIsHistoryPreviewOpen] = useState(false);
+  const [historyPreviewCommitId, setHistoryPreviewCommitId] = useState<string | null>(null);
+  const [isSnapshotModalOpen, setIsSnapshotModalOpen] = useState(false);
+  const [pendingSnapshotMessage, setPendingSnapshotMessage] = useState('');
   
   const searchParams = new URLSearchParams(window.location.search);
   const treeParam = searchParams.get('tree');
@@ -102,7 +121,7 @@ function App() {
   }, [repo, treeParam, treeUrl, isCreatingTree]);
 
   // Hook para el árbol de directorios
-  const [treeDoc] = useDocument<DirectoryTreeDoc>(treeUrl ?? undefined);
+  const [treeDoc, changeTreeDoc] = useDocument<DirectoryTreeDoc>(treeUrl ?? undefined);
 
   // Sincronizar currentDocUrl con el parámetro doc
   useEffect(() => {
@@ -129,6 +148,9 @@ function App() {
   
   // Hook oficial para leer/escribir el documento activo
   const [doc, changeDoc] = useDocument<MarkdownDoc>(currentDocUrl ?? undefined);
+
+  // Documento de historial asociado al documento Markdown actual (se crea bajo demanda)
+  const [historyDoc, changeHistoryDoc] = useDocument<MarkdownHistoryDoc>(historyDocUrl ?? undefined);
   
   // Si no hay documento actual seleccionado **y tampoco viene uno en la URL**, crear uno nuevo automáticamente
   useEffect(() => {
@@ -157,6 +179,11 @@ function App() {
   
   const content = doc?.content ?? '';
   const annotations: Annotation[] = doc?.annotations ?? [];
+  const historyCommits: DocCommit[] = historyDoc?.commits ?? [];
+  const historyPreviewCommit =
+    historyPreviewCommitId && historyCommits
+      ? historyCommits.find((c) => c.id === historyPreviewCommitId) ?? null
+      : null;
   
   const updateContent = (newContent: string) => {
     if (changeDoc) {
@@ -164,6 +191,128 @@ function App() {
         d.content = newContent;
       });
     }
+  };
+
+  // Asegurar que exista un documento de historial para el documento actual (compartido vía MarkdownDoc.historyUrl)
+  useEffect(() => {
+    if (!currentDocUrl || !repo || !doc) {
+      setHistoryDocUrl(null);
+      return;
+    }
+
+    // Si el propio documento ya conoce su historyUrl, usarlo directamente
+    if (doc.historyUrl) {
+      setHistoryDocUrl(doc.historyUrl as AutomergeUrl);
+      return;
+    }
+
+    // Migración opcional desde historiales locales previos (si existen)
+    let migratedUrl: AutomergeUrl | null = null;
+    if (typeof window !== 'undefined') {
+      const key = `history:${currentDocUrl}`;
+      const existing = window.localStorage.getItem(key);
+      if (existing && existing.startsWith('automerge:')) {
+        migratedUrl = existing as AutomergeUrl;
+      }
+    }
+
+    if (migratedUrl) {
+      setHistoryDocUrl(migratedUrl);
+      if (changeDoc) {
+        changeDoc((d: MarkdownDoc) => {
+          d.historyUrl = migratedUrl as AutomergeUrl;
+        });
+      }
+      return;
+    }
+
+    const handle = repo.create<MarkdownHistoryDoc>();
+    handle.change((dHist: MarkdownHistoryDoc) => {
+      dHist.docUrl = currentDocUrl as AutomergeUrl;
+      dHist.commits = [] as any;
+    });
+    const url = handle.url as AutomergeUrl;
+
+    if (changeDoc) {
+      changeDoc((d: MarkdownDoc) => {
+        d.historyUrl = url;
+      });
+    }
+
+    setHistoryDocUrl(url);
+  }, [currentDocUrl, repo, doc, changeDoc]);
+
+  const handleCreateSnapshot = () => {
+    if (!historyDoc || !changeHistoryDoc || !currentDocUrl) return;
+    setPendingSnapshotMessage('');
+    setIsSnapshotModalOpen(true);
+  };
+
+  const handleConfirmSnapshot = () => {
+    if (!changeHistoryDoc || !historyDoc || !currentDocUrl) return;
+
+    const trimmed = pendingSnapshotMessage.trim() || 'Snapshot manual';
+    const now = Date.now();
+
+    const newCommit: DocCommit = {
+      id: crypto.randomUUID(),
+      parents: historyDoc.headId ? [historyDoc.headId] : [],
+      createdAt: now,
+      message: trimmed,
+      content,
+    };
+
+    changeHistoryDoc((d: MarkdownHistoryDoc) => {
+      if (!d.commits) {
+        d.commits = [] as any;
+      }
+      d.commits.push(newCommit);
+      d.headId = newCommit.id;
+      if (!d.docUrl) {
+        d.docUrl = currentDocUrl as AutomergeUrl;
+      }
+    });
+
+    setIsSnapshotModalOpen(false);
+    setPendingSnapshotMessage('');
+  };
+
+  const handleCancelSnapshot = () => {
+    setIsSnapshotModalOpen(false);
+    setPendingSnapshotMessage('');
+  };
+
+  const handleRestoreFromSnapshot = (commit: DocCommit) => {
+    if (!changeDoc || !changeHistoryDoc) return;
+
+    changeDoc((d: MarkdownDoc) => {
+      d.content = commit.content;
+    });
+
+    changeHistoryDoc((d: MarkdownHistoryDoc) => {
+      const rollbackCommit: DocCommit = {
+        id: crypto.randomUUID(),
+        parents: d.headId ? [d.headId] : [],
+        createdAt: Date.now(),
+        message: `Rollback a snapshot (${new Date(commit.createdAt).toLocaleString()})`,
+        content: commit.content,
+      };
+      if (!d.commits) {
+        d.commits = [] as any;
+      }
+      d.commits.push(rollbackCommit);
+      d.headId = rollbackCommit.id;
+    });
+  };
+
+  const handleOpenSnapshotPreview = (commitId: string) => {
+    setHistoryPreviewCommitId(commitId);
+    setIsHistoryPreviewOpen(true);
+  };
+
+  const handleCloseSnapshotPreview = () => {
+    setIsHistoryPreviewOpen(false);
+    setHistoryPreviewCommitId(null);
   };
 
   const detectCodeBlockAtPosition = (text: string, pos: number) => {
@@ -716,6 +865,16 @@ function App() {
           >
             Ayuda diagramas
           </button>
+
+          <button
+            onClick={handleCreateSnapshot}
+            disabled={!currentDocUrl || !historyDocUrl}
+            className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm"
+            title="Guardar snapshot manual de la versión actual"
+          >
+            <Clock className="w-4 h-4" />
+            Guardar snapshot
+          </button>
         </div>
       </header>
 
@@ -1002,18 +1161,48 @@ function App() {
               type="button"
               onClick={() => setIsAnnotationsOpen((prev) => !prev)}
               className="flex items-center justify-center w-6 h-6 rounded border border-slate-200 bg-white text-[10px] text-slate-600 hover:bg-slate-100 flex-shrink-0"
-              title={isAnnotationsOpen ? 'Ocultar panel de anotaciones' : 'Mostrar panel de anotaciones'}
+              title={isAnnotationsOpen ? 'Ocultar panel lateral' : 'Mostrar panel lateral'}
             >
               {isAnnotationsOpen ? '⟩' : '⟨'}
             </button>
             {isAnnotationsOpen && (
-              <>
-                <span className="truncate">Anotaciones</span>
-                <span className="text-[10px] text-slate-400 ml-1 flex-shrink-0">{annotations.length}</span>
-              </>
+              <div className="flex items-center justify-between gap-2 flex-1">
+                <div className="inline-flex items-center bg-white border border-slate-200 rounded-md overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setSidePanelTab('annotations')}
+                    className={clsx(
+                      'px-2 py-1 text-[11px]',
+                      sidePanelTab === 'annotations'
+                        ? 'bg-slate-800 text-white'
+                        : 'bg-white text-slate-600 hover:bg-slate-100'
+                    )}
+                  >
+                    Anotaciones
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSidePanelTab('history')}
+                    className={clsx(
+                      'px-2 py-1 text-[11px] border-l border-slate-200',
+                      sidePanelTab === 'history'
+                        ? 'bg-slate-800 text-white'
+                        : 'bg-white text-slate-600 hover:bg-slate-100'
+                    )}
+                  >
+                    Historial
+                  </button>
+                </div>
+                {sidePanelTab === 'annotations' && (
+                  <span className="text-[10px] text-slate-400 ml-1 flex-shrink-0">{annotations.length}</span>
+                )}
+                {sidePanelTab === 'history' && (
+                  <span className="text-[10px] text-slate-400 ml-1 flex-shrink-0">{historyCommits.length}</span>
+                )}
+              </div>
             )}
           </div>
-          {isAnnotationsOpen && (
+          {isAnnotationsOpen && sidePanelTab === 'annotations' && (
             <div className="flex-1 overflow-auto p-3 space-y-3">
               {annotations.length === 0 && (
                 <div className="text-xs text-slate-400">
@@ -1079,8 +1268,145 @@ function App() {
                 })}
             </div>
           )}
+          {isAnnotationsOpen && sidePanelTab === 'history' && (
+            <div className="flex-1 overflow-auto p-3 space-y-3">
+              {(!historyDoc || historyCommits.length === 0) && (
+                <div className="text-xs text-slate-400">
+                  No hay snapshots todavía. Usa "Guardar snapshot" para crear uno.
+                </div>
+              )}
+              {historyCommits
+                .slice()
+                .sort((a, b) => a.createdAt - b.createdAt)
+                .map((commit) => (
+                  <div
+                    key={commit.id}
+                    className="border rounded-md p-2 space-y-1 bg-slate-50 border-slate-200"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-col">
+                        <span className="text-[11px] font-semibold text-slate-700 truncate">
+                          {commit.message || 'Snapshot'}
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          {new Date(commit.createdAt).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-end gap-2 mt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenSnapshotPreview(commit.id)}
+                        className="text-[11px] px-2 py-0.5 rounded border border-slate-200 text-slate-600 hover:bg-slate-100"
+                      >
+                        Ver
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRestoreFromSnapshot(commit)}
+                        className="text-[11px] px-2 py-0.5 rounded border border-amber-300 text-amber-700 hover:bg-amber-50"
+                      >
+                        Restaurar
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
         </aside>
       </main>
+
+      {isHistoryPreviewOpen && historyPreviewCommit && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-5xl max-h-[80vh] flex flex-col">
+            <div className="px-4 py-2 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex flex-col gap-0.5">
+                <h2 className="text-sm font-semibold text-slate-800">Snapshot</h2>
+                <div className="text-[11px] text-slate-500 flex flex-wrap gap-2">
+                  <span>{new Date(historyPreviewCommit.createdAt).toLocaleString()}</span>
+                  {historyPreviewCommit.message && (
+                    <span className="truncate max-w-[260px]">“{historyPreviewCommit.message}”</span>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseSnapshotPreview}
+                className="text-xs text-slate-500 hover:text-slate-700"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4 bg-slate-50">
+              <div className="grid grid-cols-2 gap-3 h-full">
+                <div className="flex flex-col h-full">
+                  <div className="text-[11px] font-semibold text-slate-600 mb-1 flex items-center justify-between">
+                    <span>Snapshot guardado</span>
+                  </div>
+                  <textarea
+                    readOnly
+                    className="w-full h-full min-h-[260px] text-xs font-mono border border-slate-200 rounded-md p-2 bg-white whitespace-pre resize-none"
+                    value={historyPreviewCommit.content}
+                  />
+                </div>
+                <div className="flex flex-col h-full">
+                  <div className="text-[11px] font-semibold text-slate-600 mb-1 flex items-center justify-between">
+                    <span>Contenido actual</span>
+                  </div>
+                  <textarea
+                    readOnly
+                    className="w-full h-full min-h-[260px] text-xs font-mono border border-slate-200 rounded-md p-2 bg-white whitespace-pre resize-none"
+                    value={content}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isSnapshotModalOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md p-4 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-800">Nuevo snapshot</h2>
+              <button
+                type="button"
+                onClick={handleCancelSnapshot}
+                className="text-xs text-slate-500 hover:text-slate-700"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="text-xs text-slate-500">
+              Escribe un comentario para este snapshot del documento.
+            </div>
+            <textarea
+              value={pendingSnapshotMessage}
+              onChange={(e) => setPendingSnapshotMessage(e.target.value)}
+              className="w-full min-h-[120px] text-sm border border-slate-200 rounded-md p-2 outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 resize-y"
+              placeholder="Descripción de la versión, cambios importantes, etc."
+            />
+            <div className="flex justify-end gap-2 mt-2">
+              <button
+                type="button"
+                onClick={handleCancelSnapshot}
+                className="px-3 py-1.5 text-xs rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSnapshot}
+                className="px-3 py-1.5 text-xs rounded-md bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!pendingSnapshotMessage.trim()}
+              >
+                Guardar snapshot
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isAnnotationModalOpen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40">
