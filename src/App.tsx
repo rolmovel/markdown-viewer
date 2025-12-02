@@ -815,44 +815,6 @@ function App() {
                   <option value="mindmap">Mindmap</option>
                   <option value="timeline">Timeline</option>
                 </select>
-                <select
-                  className="px-1 py-1 border border-slate-200 rounded text-xs bg-white"
-                  defaultValue=""
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (!v) return;
-                    insertKrokiTemplate(v);
-                    e.target.value = '';
-                  }}
-                >
-                  <option value="" disabled>
-                    Kroki
-                  </option>
-                  <option value="plantuml">plantuml</option>
-                  <option value="c4plantuml">c4plantuml</option>
-                  <option value="structurizr">structurizr</option>
-                  <option value="dot">dot / graphviz</option>
-                  <option value="d2">d2</option>
-                  <option value="erd">erd</option>
-                  <option value="bpmn">bpmn</option>
-                  <option value="blockdiag">blockdiag</option>
-                  <option value="seqdiag">seqdiag</option>
-                  <option value="actdiag">actdiag</option>
-                  <option value="nwdiag">nwdiag</option>
-                  <option value="packetdiag">packetdiag</option>
-                  <option value="rackdiag">rackdiag</option>
-                  <option value="bytefield">bytefield</option>
-                  <option value="nomnoml">nomnoml</option>
-                  <option value="pikchr">pikchr</option>
-                  <option value="svgbob">svgbob</option>
-                  <option value="symbolator">symbolator</option>
-                  <option value="umlet">umlet</option>
-                  <option value="vega">vega</option>
-                  <option value="vegalite">vegalite</option>
-                  <option value="wavedrom">wavedrom</option>
-                  <option value="wireviz">wireviz</option>
-                  <option value="ditaa">ditaa</option>
-                </select>
                 <button
                   type="button"
                   onClick={() => insertBlock('\n```\n// código\n```\\n')}
