@@ -1,5 +1,3 @@
-import React from 'react';
-
 interface DiagramHelpModalProps {
   isOpen: boolean;
   onClose: () => void;

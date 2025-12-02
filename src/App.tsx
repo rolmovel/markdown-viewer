@@ -37,7 +37,7 @@ function App() {
   const [isCreatingTree, setIsCreatingTree] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [replaceText, setReplaceText] = useState('');
-  const [currentBlock, setCurrentBlock] = useState<{
+  const [, setCurrentBlock] = useState<{
     lang: string;
     start: number;
     end: number;
