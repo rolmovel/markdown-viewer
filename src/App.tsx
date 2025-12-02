@@ -11,6 +11,7 @@ import testContent from './test/test.md?raw';
 import { useRepo, useDocument } from '@automerge/automerge-repo-react-hooks';
 import type { AutomergeUrl } from '@automerge/automerge-repo';
 import type { DirectoryTreeDoc, TreeNode } from './collab/directoryTypes';
+import DiagramHelpModal from './components/DiagramHelpModal';
 
 // Tipo del documento colaborativo
 interface MarkdownDoc {
@@ -36,6 +37,12 @@ function App() {
   const [isCreatingTree, setIsCreatingTree] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [replaceText, setReplaceText] = useState('');
+  const [currentBlock, setCurrentBlock] = useState<{
+    lang: string;
+    start: number;
+    end: number;
+  } | null>(null);
+  const [isDiagramHelpOpen, setIsDiagramHelpOpen] = useState(false);
   
   const searchParams = new URLSearchParams(window.location.search);
   const treeParam = searchParams.get('tree');
@@ -135,6 +142,44 @@ function App() {
     }
   };
 
+  const detectCodeBlockAtPosition = (text: string, pos: number) => {
+    const fence = '```';
+    const blockStart = text.lastIndexOf(fence, pos);
+    if (blockStart === -1) return null;
+
+    const firstLineEnd = text.indexOf('\n', blockStart);
+    const firstLine = firstLineEnd === -1 ? text.slice(blockStart) : text.slice(blockStart, firstLineEnd);
+    const lang = firstLine.replace(/^```/, '').trim() || 'markdown';
+
+    const searchFrom = firstLineEnd === -1 ? blockStart + fence.length : firstLineEnd + 1;
+    let blockEndFence = text.indexOf('\n```', searchFrom);
+    if (blockEndFence === -1) {
+      // intentar encontrar "```" al final del texto
+      const lastFence = text.indexOf(fence, searchFrom);
+      if (lastFence !== -1) {
+        blockEndFence = lastFence;
+      } else {
+        blockEndFence = text.length;
+      }
+    }
+
+    const blockEnd = blockEndFence + (text.startsWith('```', blockEndFence + 1) ? 3 : 4); // incluir cierre
+
+    return {
+      lang,
+      start: blockStart,
+      end: Math.min(blockEnd, text.length),
+    };
+  };
+
+  const updateCurrentBlockFromSelection = () => {
+    const textarea = editorRef.current;
+    if (!textarea) return;
+    const pos = textarea.selectionStart ?? 0;
+    const info = detectCodeBlockAtPosition(content, pos);
+    setCurrentBlock(info);
+  };
+
   const applyTextTransformation = (
     transform: (full: string, selectionStart: number, selectionEnd: number) => {
       text: string;
@@ -216,7 +261,17 @@ function App() {
         insertBlock('\n```plantuml\n@startuml\nstart\n:Acción 1;\n:Acción 2;\nstop\n@enduml\n```\n');
         break;
       case 'c4plantuml':
-        insertBlock('\n```c4plantuml\n@startuml C4_Container\ntitle Sistema ejemplo\n\nPerson(usuario, "Usuario", "Usa el sistema")\nSystem(sistema, "Sistema", "Hace cosas")\n\nRel(usuario, sistema, "Usa")\n@enduml\n```\n');
+        insertBlock(
+          '\n```c4plantuml\n' +
+          '@startuml C4_Elements\n' +
+          '!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml\n\n' +
+          'Person(personAlias, "Label", "Optional Description")\n' +
+          'Container(containerAlias, "Label", "Technology", "Optional Description")\n' +
+          'System(systemAlias, "Label", "Optional Description")\n\n' +
+          'Rel(personAlias, containerAlias, "Label", "Optional Technology")\n' +
+          '@enduml\n' +
+          '```\n'
+        );
         break;
       case 'structurizr':
         insertBlock('\n```structurizr\nworkspace "Ejemplo" {\n  model {\n    user = person "Usuario"\n    system = softwareSystem "Sistema"\n    user -> system "Usa"\n  }\n}\n```\n');
@@ -381,8 +436,10 @@ function App() {
     handleSearchNext();
   };
 
+  const showDiagramHelp = () => {
+    setIsDiagramHelpOpen(true);
+  };
 
-  // Función para copiar el enlace de colaboración
   const copyShareLink = () => {
     navigator.clipboard.writeText(window.location.href);
     alert('Enlace copiado. Compártelo para colaborar en este documento.');
@@ -466,7 +523,13 @@ function App() {
             Exportar PDF
           </button>
 
-          {/* Botones de guardado de versión y asistente desactivados */}
+          <button
+            onClick={showDiagramHelp}
+            className="flex items-center gap-2 bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm"
+            title="Ayuda para generar diagramas Mermaid y Kroki"
+          >
+            Ayuda diagramas
+          </button>
         </div>
       </header>
 
@@ -606,7 +669,7 @@ function App() {
                 </select>
                 <button
                   type="button"
-                  onClick={() => insertBlock('\n```\n// código\n```\n')}
+                  onClick={() => insertBlock('\n```\n// código\n```\\n')}
                   className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100"
                 >
                   Código
@@ -648,6 +711,9 @@ function App() {
                 ref={editorRef}
                 value={content}
                 onChange={(e) => updateContent(e.target.value)}
+                onClick={updateCurrentBlockFromSelection}
+                onKeyUp={updateCurrentBlockFromSelection}
+                onSelect={updateCurrentBlockFromSelection}
                 className="flex-1 w-full p-6 resize-none outline-none font-mono text-sm leading-relaxed text-slate-800"
                 placeholder="Escribe tu markdown aquí..."
                 spellCheck={false}
@@ -770,7 +836,10 @@ function App() {
         </div>
       </main>
 
-      {/* Asistente desactivado */}
+      <DiagramHelpModal
+        isOpen={isDiagramHelpOpen}
+        onClose={() => setIsDiagramHelpOpen(false)}
+      />
     </div>
   );
 }

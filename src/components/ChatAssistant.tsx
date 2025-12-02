@@ -9,6 +9,13 @@ interface Message {
   timestamp: Date;
 }
 
+interface BlockVersion {
+  id: string;
+  label: string;
+  content: string;
+  createdAt: string;
+}
+
 interface ChatAssistantProps {
   isOpen: boolean;
   onClose: () => void;
@@ -20,36 +27,14 @@ interface ChatAssistantProps {
   selectedText: string;
   /** Inserta texto al final del documento. */
   onInsertText: (text: string) => void;
-  /** Reemplaza la selección actual en el documento. */
+  /** Reemplaza la selección actual en el documento o bloque activo. */
   onReplaceSelection: (text: string) => void;
 }
 
-// Configuración de proveedores LLM
-type LLMProvider = 'openai' | 'anthropic' | 'groq';
-
 interface LLMConfig {
-  provider: LLMProvider;
   apiKey: string;
   model: string;
 }
-
-const PROVIDER_MODELS: Record<LLMProvider, { name: string; models: string[]; defaultModel: string }> = {
-  openai: { 
-    name: 'OpenAI', 
-    models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-    defaultModel: 'gpt-4o-mini'
-  },
-  anthropic: { 
-    name: 'Anthropic', 
-    models: ['claude-3-haiku-20240307', 'claude-3-sonnet-20240229', 'claude-3-opus-20240229'],
-    defaultModel: 'claude-3-haiku-20240307'
-  },
-  groq: { 
-    name: 'Groq', 
-    models: ['llama-3.1-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
-    defaultModel: 'llama-3.1-70b-versatile'
-  },
-};
 
 const SYSTEM_PROMPT = `Eres un asistente de escritura experto especializado en ayudar a crear y mejorar documentos en formato Markdown.
 
@@ -64,7 +49,8 @@ Reglas importantes:
 - Responde siempre en español.
 - Cuando sugieras texto para insertar, usa bloques de código markdown (\`\`\`markdown).
 - Sé conciso pero útil.
-- Mantén el tono profesional pero amigable.`;
+- Mantén el tono profesional pero amigable.
+- Cuando trabajes con bloques de código o diagramas, devuelve el bloque completo listo para reemplazar.`;
 
 // Acciones rápidas predefinidas
 const quickActions = [
@@ -73,115 +59,63 @@ const quickActions = [
   { icon: Search, label: 'Sugerir contenido', prompt: 'Basándote en el documento, sugiere qué secciones o contenido adicional podría añadirse:' },
 ];
 
-// Funciones para llamar a los diferentes proveedores
-async function callOpenAI(messages: Array<{ role: string; content: string }>, config: LLMConfig): Promise<string> {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: config.model,
-      messages,
-      temperature: 0.7,
-      max_tokens: 2000,
-    }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error?.message || 'Error en OpenAI API');
-  }
-
-  const data = await response.json();
-  return data.choices[0].message.content;
-}
-
-async function callAnthropic(messages: Array<{ role: string; content: string }>, config: LLMConfig): Promise<string> {
-  // Anthropic requiere CORS, usamos un proxy o la API directa si está permitido
-  const systemMessage = messages.find(m => m.role === 'system')?.content || '';
-  const chatMessages = messages.filter(m => m.role !== 'system');
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': config.apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: config.model,
-      max_tokens: 2000,
-      system: systemMessage,
-      messages: chatMessages.map(m => ({
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-      })),
-    }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error?.message || 'Error en Anthropic API');
-  }
-
-  const data = await response.json();
-  return data.content[0].text;
-}
-
-async function callGroq(messages: Array<{ role: string; content: string }>, config: LLMConfig): Promise<string> {
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: config.model,
-      messages,
-      temperature: 0.7,
-      max_tokens: 2000,
-    }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error?.message || 'Error en Groq API');
-  }
-
-  const data = await response.json();
-  return data.choices[0].message.content;
-}
-
+// Llamada al LLM mediante OpenRouter
 async function callLLM(messages: Array<{ role: string; content: string }>, config: LLMConfig): Promise<string> {
-  switch (config.provider) {
-    case 'anthropic':
-      return callAnthropic(messages, config);
-    case 'groq':
-      return callGroq(messages, config);
-    case 'openai':
-    default:
-      return callOpenAI(messages, config);
+  if (!config.apiKey) {
+    throw new Error('Falta la API key de OpenRouter');
   }
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.apiKey}`,
+      'HTTP-Referer': window.location.origin,
+      'X-Title': 'Markdown Editor Assistant',
+    },
+    body: JSON.stringify({
+      model: config.model || 'openrouter/auto',
+      messages,
+      temperature: 0.7,
+      max_tokens: 2000,
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Error en OpenRouter: ${response.status} ${response.statusText} - ${detail}`);
+  }
+
+  const data = await response.json();
+  const text = data?.choices?.[0]?.message?.content;
+  if (!text) {
+    throw new Error('Respuesta vacía del modelo');
+  }
+  return text as string;
 }
 
 // Cargar configuración desde localStorage
 function loadConfig(): LLMConfig {
-  const saved = localStorage.getItem('llm-config');
+  const saved = localStorage.getItem('openrouter_config');
+  const storedKey = localStorage.getItem('openrouter_api_key') || '';
   if (saved) {
-    return JSON.parse(saved);
+    const parsed = JSON.parse(saved) as Partial<LLMConfig>;
+    return {
+      apiKey: parsed.apiKey || storedKey,
+      model: parsed.model || 'openrouter/auto',
+    };
   }
   return {
-    provider: 'openai',
-    apiKey: '',
-    model: 'gpt-4o-mini',
+    apiKey: storedKey,
+    model: 'openrouter/auto',
   };
 }
 
 function saveConfig(config: LLMConfig) {
-  localStorage.setItem('llm-config', JSON.stringify(config));
+  localStorage.setItem('openrouter_config', JSON.stringify(config));
+  if (config.apiKey) {
+    localStorage.setItem('openrouter_api_key', config.apiKey);
+  }
 }
 
 export default function ChatAssistant({ 
@@ -204,6 +138,7 @@ export default function ChatAssistant({
   const [isLoading, setIsLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [config, setConfig] = useState<LLMConfig>(loadConfig);
+  const [versions, setVersions] = useState<BlockVersion[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -223,6 +158,23 @@ export default function ChatAssistant({
   useEffect(() => {
     saveConfig(config);
   }, [config]);
+
+  // Inicializar versiones cuando cambia el bloque seleccionado o se abre el chat
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!selectedText || !selectedText.trim()) {
+      setVersions([]);
+      return;
+    }
+    setVersions([
+      {
+        id: 'v0',
+        label: 'Versión inicial del bloque',
+        content: selectedText,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+  }, [isOpen, selectedText]);
 
   const sendMessage = async (content: string) => {
     if (!content.trim() || isLoading) return;
@@ -299,7 +251,8 @@ export default function ChatAssistant({
 
   // Extraer bloques de código del mensaje para permitir inserción
   const renderMessageContent = (content: string, isAssistant: boolean) => {
-    const codeBlockRegex = /```(?:markdown|md)?\n?([\s\S]*?)```/g;
+    // Capturamos cualquier bloque con ```<lang> ... ``` para preservar fences y lenguaje
+    const codeBlockRegex = /```([a-zA-Z0-9_-]*)\n?([\s\S]*?)```/g;
     const parts: (string | { type: 'code'; content: string })[] = [];
     let lastIndex = 0;
     let match;
@@ -308,7 +261,8 @@ export default function ChatAssistant({
       if (match.index > lastIndex) {
         parts.push(content.slice(lastIndex, match.index));
       }
-      parts.push({ type: 'code', content: match[1] });
+      // match[0] es el bloque completo incluyendo ``` y el lenguaje (por ejemplo ```mermaid)
+      parts.push({ type: 'code', content: match[0] });
       lastIndex = match.index + match[0].length;
     }
     if (lastIndex < content.length) {
@@ -349,10 +303,23 @@ export default function ChatAssistant({
                       Insertar al final
                     </button>
                     <button
-                      onClick={() => onReplaceSelection(part.content)}
+                      onClick={() => {
+                        const id = `v${versions.length + 1}-${Date.now()}`;
+                        const label = `Versión ${versions.length + 1} del bloque`;
+                        setVersions(prev => [
+                          ...prev,
+                          {
+                            id,
+                            label,
+                            content: part.content,
+                            createdAt: new Date().toISOString(),
+                          },
+                        ]);
+                        onReplaceSelection(part.content);
+                      }}
                       className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2 py-1 rounded"
                     >
-                      Reemplazar selección
+                      Reemplazar bloque
                     </button>
                   </div>
                 )}
@@ -399,50 +366,28 @@ export default function ChatAssistant({
         <div className="p-4 border-b border-slate-200 bg-slate-50 space-y-4">
           <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
             <Key className="w-4 h-4" />
-            Configuración de API
+            Configuración de OpenRouter
           </div>
           
           <div className="space-y-3">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Proveedor</label>
-              <select
-                value={config.provider}
-                onChange={(e) => {
-                  const provider = e.target.value as LLMProvider;
-                  setConfig({
-                    ...config,
-                    provider,
-                    model: PROVIDER_MODELS[provider].defaultModel,
-                  });
-                }}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                {Object.entries(PROVIDER_MODELS).map(([key, value]) => (
-                  <option key={key} value={key}>{value.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Modelo</label>
-              <select
+              <input
+                type="text"
                 value={config.model}
                 onChange={(e) => setConfig({ ...config, model: e.target.value })}
+                placeholder="openrouter/auto"
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                {PROVIDER_MODELS[config.provider].models.map((model) => (
-                  <option key={model} value={model}>{model}</option>
-                ))}
-              </select>
+              />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">API Key</label>
+              <label className="block text-xs font-medium text-slate-600 mb-1">OpenRouter API Key</label>
               <input
                 type="password"
                 value={config.apiKey}
                 onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
-                placeholder={`Tu ${PROVIDER_MODELS[config.provider].name} API Key`}
+                placeholder="sk-or-v1-..."
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               <p className="text-xs text-slate-400 mt-1">
@@ -461,7 +406,7 @@ export default function ChatAssistant({
       )}
 
       {/* Quick Actions */}
-      <div className="p-3 border-b border-slate-200 bg-slate-50">
+      <div className="p-3 border-b border-slate-200 bg-slate-50 space-y-2">
         <div className="flex gap-2 overflow-x-auto pb-1">
           {quickActions.map((action, i) => (
             <button
@@ -475,6 +420,26 @@ export default function ChatAssistant({
             </button>
           ))}
         </div>
+
+        {versions.length > 0 && (
+          <div className="border-t border-slate-200 pt-2 mt-1">
+            <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+              <span>Versiones del bloque</span>
+              <span>{versions.length}</span>
+            </div>
+            <div className="max-h-24 overflow-y-auto space-y-1">
+              {versions.map((v) => (
+                <button
+                  key={v.id}
+                  onClick={() => onReplaceSelection(v.content)}
+                  className="w-full text-left px-2 py-1 rounded text-[11px] bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 text-slate-600"
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Messages */}
