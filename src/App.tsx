@@ -14,8 +14,21 @@ import type { DirectoryTreeDoc, TreeNode } from './collab/directoryTypes';
 import DiagramHelpModal from './components/DiagramHelpModal';
 
 // Tipo del documento colaborativo
+interface Annotation {
+  id: string;
+  type: 'text' | 'diagram';
+  start: number;
+  end: number;
+  codeBlockStart?: number;
+  codeBlockEnd?: number;
+  body: string;
+  createdAt: string;
+  resolved: boolean;
+}
+
 interface MarkdownDoc {
   content: string;
+  annotations: Annotation[];
 }
 
 // Utilidad para buscar un nodo en el árbol por id
@@ -37,12 +50,20 @@ function App() {
   const [isCreatingTree, setIsCreatingTree] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [replaceText, setReplaceText] = useState('');
+  const [isSyncEnabled, setIsSyncEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    const stored = window.localStorage.getItem('syncEnabled');
+    return stored !== 'false';
+  });
   const [, setCurrentBlock] = useState<{
     lang: string;
     start: number;
     end: number;
   } | null>(null);
   const [isDiagramHelpOpen, setIsDiagramHelpOpen] = useState(false);
+  const [isAnnotationModalOpen, setIsAnnotationModalOpen] = useState(false);
+  const [pendingAnnotationRange, setPendingAnnotationRange] = useState<{ start: number; end: number } | null>(null);
+  const [pendingAnnotationBody, setPendingAnnotationBody] = useState('');
   
   const searchParams = new URLSearchParams(window.location.search);
   const treeParam = searchParams.get('tree');
@@ -107,7 +128,7 @@ function App() {
   
   // Hook oficial para leer/escribir el documento activo
   const [doc, changeDoc] = useDocument<MarkdownDoc>(currentDocUrl ?? undefined);
-
+  
   // Si no hay documento actual seleccionado **y tampoco viene uno en la URL**, crear uno nuevo automáticamente
   useEffect(() => {
     // Si ya tenemos doc seleccionado, no hacer nada
@@ -119,6 +140,7 @@ function App() {
     const handle = repo.create<MarkdownDoc>();
     handle.change((d: MarkdownDoc) => {
       d.content = '# Nuevo documento\n';
+      d.annotations = [] as any;
     });
     const newDocUrl = handle.url as AutomergeUrl;
 
@@ -133,6 +155,7 @@ function App() {
   }, [currentDocUrl, repo, treeUrl, docParam]);
   
   const content = doc?.content ?? '';
+  const annotations: Annotation[] = doc?.annotations ?? [];
   
   const updateContent = (newContent: string) => {
     if (changeDoc) {
@@ -436,6 +459,37 @@ function App() {
     handleSearchNext();
   };
 
+  const addTextAnnotation = (start: number, end: number, body: string) => {
+    if (!changeDoc) return;
+    if (start === end) return;
+
+    changeDoc((d: MarkdownDoc) => {
+      if (!d.annotations) {
+        d.annotations = [] as any;
+      }
+      d.annotations.push({
+        id: crypto.randomUUID(),
+        type: 'text',
+        start,
+        end,
+        body,
+        createdAt: new Date().toISOString(),
+        resolved: false,
+      });
+    });
+  };
+
+  const toggleResolveAnnotation = (id: string) => {
+    if (!changeDoc) return;
+    changeDoc((d: MarkdownDoc) => {
+      if (!d.annotations) return;
+      const ann = d.annotations.find((a) => a.id === id);
+      if (!ann) return;
+      if (ann.resolved) return;
+      ann.resolved = true;
+    });
+  };
+
   const showDiagramHelp = () => {
     setIsDiagramHelpOpen(true);
   };
@@ -446,6 +500,114 @@ function App() {
   };
   const previewRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const root = previewRef.current;
+    if (!root) return;
+
+    const highlighted = root.querySelectorAll('span[data-annotation-highlight]');
+    highlighted.forEach((span) => {
+      const parent = span.parentNode;
+      if (!parent) return;
+      while (span.firstChild) {
+        parent.insertBefore(span.firstChild, span);
+      }
+      parent.removeChild(span);
+    });
+
+    const activeAnnotations = annotations.filter((a) => a.type === 'text' && !a.resolved);
+
+    if (activeAnnotations.length === 0) return;
+
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text;
+      if (node.nodeValue && node.nodeValue.trim()) {
+        textNodes.push(node);
+      }
+    }
+
+    for (const ann of activeAnnotations) {
+      const rawSnippet = content.slice(ann.start, ann.end);
+      const snippet = rawSnippet.trim();
+      if (!snippet) continue;
+
+      for (const node of textNodes) {
+        const value = node.nodeValue ?? '';
+        const index = value.indexOf(snippet);
+        if (index === -1) continue;
+
+        const range = document.createRange();
+        range.setStart(node, index);
+        range.setEnd(node, index + snippet.length);
+
+        const wrapper = document.createElement('span');
+        wrapper.setAttribute('data-annotation-highlight', ann.id);
+        wrapper.className = 'bg-amber-100 rounded px-0.5 cursor-pointer';
+
+        range.surroundContents(wrapper);
+        break;
+      }
+    }
+  }, [annotations, content]);
+
+  const handleAddTextAnnotationFromSelection = () => {
+    const textarea = editorRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart ?? 0;
+    const end = textarea.selectionEnd ?? 0;
+    if (start === end) {
+      alert('Selecciona primero el texto que quieres anotar.');
+      return;
+    }
+    setPendingAnnotationRange({ start, end });
+    setPendingAnnotationBody('');
+    setIsAnnotationModalOpen(true);
+  };
+
+  const focusAnnotation = (ann: Annotation) => {
+    const textarea = editorRef.current;
+    if (!textarea) return;
+
+    const originalSnippet = content.slice(ann.start, ann.end).trim();
+    let start = ann.start;
+    let end = ann.end;
+
+    if (originalSnippet) {
+      const idx = content.indexOf(originalSnippet);
+      if (idx !== -1) {
+        start = idx;
+        end = idx + originalSnippet.length;
+      }
+    }
+
+    const safeStart = Math.max(0, Math.min(content.length, start));
+    const safeEnd = Math.max(0, Math.min(content.length, end));
+
+    requestAnimationFrame(() => {
+      if (!editorRef.current) return;
+      editorRef.current.focus();
+      editorRef.current.setSelectionRange(safeStart, safeEnd);
+    });
+  };
+
+  const handleConfirmAnnotation = () => {
+    if (!pendingAnnotationRange) return;
+    const trimmed = pendingAnnotationBody.trim();
+    if (!trimmed) return;
+
+    addTextAnnotation(pendingAnnotationRange.start, pendingAnnotationRange.end, trimmed);
+    setIsAnnotationModalOpen(false);
+    setPendingAnnotationRange(null);
+    setPendingAnnotationBody('');
+  };
+
+  const handleCancelAnnotation = () => {
+    setIsAnnotationModalOpen(false);
+    setPendingAnnotationRange(null);
+    setPendingAnnotationBody('');
+  };
 
   const handleExportPDF = () => {
     const element = previewRef.current;
@@ -467,9 +629,32 @@ function App() {
     <div className="h-screen flex flex-col bg-slate-100 overflow-hidden">
       {/* Header */}
       <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm z-10">
-        <div className="flex items-center gap-2 text-indigo-600">
+        <div className="flex items-center gap-3 text-indigo-600">
           <FileText className="w-6 h-6" />
           <h1 className="text-xl font-bold text-slate-800">Markdown Editor</h1>
+          <button
+            type="button"
+            onClick={() => {
+              setIsSyncEnabled((prev) => {
+                const next = !prev;
+                if (typeof window !== 'undefined') {
+                  window.localStorage.setItem('syncEnabled', next ? 'true' : 'false');
+                  window.location.reload();
+                }
+                return next;
+              });
+            }}
+            className="ml-4 flex items-center gap-2 text-xs font-medium text-slate-600 hover:text-slate-800"
+            title={isSyncEnabled ? 'Sincronización activada' : 'Sincronización desactivada'}
+          >
+            <span
+              className={clsx(
+                'inline-flex h-3 w-3 rounded-full border border-slate-300',
+                isSyncEnabled ? 'bg-emerald-500 shadow-[0_0_0_2px_rgba(16,185,129,0.35)]' : 'bg-red-500 shadow-[0_0_0_2px_rgba(248,113,113,0.35)]'
+              )}
+            />
+            <span>{isSyncEnabled ? 'Sync ON' : 'Sync OFF'}</span>
+          </button>
         </div>
 
         <div className="flex items-center gap-4">
@@ -704,6 +889,14 @@ function App() {
                 >
                   Reemplazar
                 </button>
+                <button
+                  type="button"
+                  onClick={handleAddTextAnnotationFromSelection}
+                  className="px-2 py-1 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                  title="Crear anotación sobre el texto seleccionado"
+                >
+                  Añadir anotación
+                </button>
               </div>
             </div>
             {currentDocUrl ? (
@@ -834,7 +1027,121 @@ function App() {
           </div>
           </div>
         </div>
+
+        <aside className="w-80 border-l border-slate-200 bg-white flex flex-col text-sm">
+          <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider flex justify-between items-center">
+            <span>Anotaciones</span>
+            <span className="text-[10px] text-slate-400">{annotations.length}</span>
+          </div>
+          <div className="flex-1 overflow-auto p-3 space-y-3">
+            {annotations.length === 0 && (
+              <div className="text-xs text-slate-400">
+                No hay anotaciones. Selecciona texto en el editor y usa "Añadir anotación".
+              </div>
+            )}
+            {annotations
+              .slice()
+              .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+              .map((ann) => {
+                const snippet = content.slice(ann.start, ann.end).replace(/\s+/g, ' ').trim();
+                return (
+                  <div
+                    key={ann.id}
+                    className={clsx(
+                      'border rounded-md p-2 space-y-1',
+                      ann.resolved ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-amber-50 border-amber-200'
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold text-slate-600">
+                        {ann.type === 'diagram' ? 'Diagrama' : 'Texto'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!ann.resolved) toggleResolveAnnotation(ann.id);
+                        }}
+                        className={clsx(
+                          'text-[10px] px-2 py-0.5 rounded border',
+                          ann.resolved
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : 'border-slate-200 bg-white text-slate-600'
+                        )}
+                      >
+                        {ann.resolved ? 'Resuelta' : 'Marcar resuelta'}
+                      </button>
+                    </div>
+                    {snippet && (
+                      <div className="text-[11px] text-slate-500 italic line-clamp-2">
+                        “{snippet}”
+                      </div>
+                    )}
+                    <div className="text-[12px] text-slate-700 whitespace-pre-wrap">
+                      {ann.body}
+                    </div>
+                    <div className="flex items-center justify-between mt-1">
+                      {!ann.resolved && (
+                        <button
+                          type="button"
+                          onClick={() => focusAnnotation(ann)}
+                          className="text-[11px] text-indigo-600 hover:text-indigo-800"
+                        >
+                          Ver en editor
+                        </button>
+                      )}
+                      <span className="text-[10px] text-slate-400">
+                        {new Date(ann.createdAt).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </aside>
       </main>
+
+      {isAnnotationModalOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md p-4 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-800">Nueva anotación</h2>
+              <button
+                type="button"
+                onClick={handleCancelAnnotation}
+                className="text-xs text-slate-500 hover:text-slate-700"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="text-xs text-slate-500">
+              Escribe el texto de la anotación para el fragmento seleccionado.
+            </div>
+            <textarea
+              value={pendingAnnotationBody}
+              onChange={(e) => setPendingAnnotationBody(e.target.value)}
+              className="w-full min-h-[120px] text-sm border border-slate-200 rounded-md p-2 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-y"
+              placeholder="Comentario, explicación, tarea pendiente, etc."
+            />
+            <div className="flex justify-end gap-2 mt-2">
+              <button
+                type="button"
+                onClick={handleCancelAnnotation}
+                className="px-3 py-1.5 text-xs rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmAnnotation}
+                className="px-3 py-1.5 text-xs rounded-md bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!pendingAnnotationRange || !pendingAnnotationBody.trim()}
+              >
+                Guardar anotación
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <DiagramHelpModal
         isOpen={isDiagramHelpOpen}
