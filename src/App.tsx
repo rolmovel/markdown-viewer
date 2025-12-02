@@ -64,6 +64,7 @@ function App() {
   const [isAnnotationModalOpen, setIsAnnotationModalOpen] = useState(false);
   const [pendingAnnotationRange, setPendingAnnotationRange] = useState<{ start: number; end: number } | null>(null);
   const [pendingAnnotationBody, setPendingAnnotationBody] = useState('');
+  const [isAnnotationsOpen, setIsAnnotationsOpen] = useState(true);
   
   const searchParams = new URLSearchParams(window.location.search);
   const treeParam = searchParams.get('tree');
@@ -1028,75 +1029,94 @@ function App() {
           </div>
         </div>
 
-        <aside className="w-80 border-l border-slate-200 bg-white flex flex-col text-sm">
-          <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider flex justify-between items-center">
-            <span>Anotaciones</span>
-            <span className="text-[10px] text-slate-400">{annotations.length}</span>
-          </div>
-          <div className="flex-1 overflow-auto p-3 space-y-3">
-            {annotations.length === 0 && (
-              <div className="text-xs text-slate-400">
-                No hay anotaciones. Selecciona texto en el editor y usa "Añadir anotación".
-              </div>
+        <aside
+          className={clsx(
+            'border-l border-slate-200 bg-white flex flex-col text-sm transition-all duration-200',
+            isAnnotationsOpen ? 'w-80' : 'w-9'
+          )}
+        >
+          <div className="bg-slate-50 px-2 py-2 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center justify-between gap-1">
+            <button
+              type="button"
+              onClick={() => setIsAnnotationsOpen((prev) => !prev)}
+              className="flex items-center justify-center w-6 h-6 rounded border border-slate-200 bg-white text-[10px] text-slate-600 hover:bg-slate-100 flex-shrink-0"
+              title={isAnnotationsOpen ? 'Ocultar panel de anotaciones' : 'Mostrar panel de anotaciones'}
+            >
+              {isAnnotationsOpen ? '⟩' : '⟨'}
+            </button>
+            {isAnnotationsOpen && (
+              <>
+                <span className="truncate">Anotaciones</span>
+                <span className="text-[10px] text-slate-400 ml-1 flex-shrink-0">{annotations.length}</span>
+              </>
             )}
-            {annotations
-              .slice()
-              .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-              .map((ann) => {
-                const snippet = content.slice(ann.start, ann.end).replace(/\s+/g, ' ').trim();
-                return (
-                  <div
-                    key={ann.id}
-                    className={clsx(
-                      'border rounded-md p-2 space-y-1',
-                      ann.resolved ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-amber-50 border-amber-200'
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-semibold text-slate-600">
-                        {ann.type === 'diagram' ? 'Diagrama' : 'Texto'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!ann.resolved) toggleResolveAnnotation(ann.id);
-                        }}
-                        className={clsx(
-                          'text-[10px] px-2 py-0.5 rounded border',
-                          ann.resolved
-                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                            : 'border-slate-200 bg-white text-slate-600'
-                        )}
-                      >
-                        {ann.resolved ? 'Resuelta' : 'Marcar resuelta'}
-                      </button>
-                    </div>
-                    {snippet && (
-                      <div className="text-[11px] text-slate-500 italic line-clamp-2">
-                        “{snippet}”
-                      </div>
-                    )}
-                    <div className="text-[12px] text-slate-700 whitespace-pre-wrap">
-                      {ann.body}
-                    </div>
-                    <div className="flex items-center justify-between mt-1">
-                      {!ann.resolved && (
+          </div>
+          {isAnnotationsOpen && (
+            <div className="flex-1 overflow-auto p-3 space-y-3">
+              {annotations.length === 0 && (
+                <div className="text-xs text-slate-400">
+                  No hay anotaciones. Selecciona texto en el editor y usa "Añadir anotación".
+                </div>
+              )}
+              {annotations
+                .slice()
+                .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+                .map((ann) => {
+                  const snippet = content.slice(ann.start, ann.end).replace(/\s+/g, ' ').trim();
+                  return (
+                    <div
+                      key={ann.id}
+                      className={clsx(
+                        'border rounded-md p-2 space-y-1',
+                        ann.resolved ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-amber-50 border-amber-200'
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-semibold text-slate-600">
+                          {ann.type === 'diagram' ? 'Diagrama' : 'Texto'}
+                        </span>
                         <button
                           type="button"
-                          onClick={() => focusAnnotation(ann)}
-                          className="text-[11px] text-indigo-600 hover:text-indigo-800"
+                          onClick={() => {
+                            if (!ann.resolved) toggleResolveAnnotation(ann.id);
+                          }}
+                          className={clsx(
+                            'text-[10px] px-2 py-0.5 rounded border',
+                            ann.resolved
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                              : 'border-slate-200 bg-white text-slate-600'
+                          )}
                         >
-                          Ver en editor
+                          {ann.resolved ? 'Resuelta' : 'Marcar resuelta'}
                         </button>
+                      </div>
+                      {snippet && (
+                        <div className="text-[11px] text-slate-500 italic line-clamp-2">
+                          “{snippet}”
+                        </div>
                       )}
-                      <span className="text-[10px] text-slate-400">
-                        {new Date(ann.createdAt).toLocaleString()}
-                      </span>
+                      <div className="text-[12px] text-slate-700 whitespace-pre-wrap">
+                        {ann.body}
+                      </div>
+                      <div className="flex items-center justify-between mt-1">
+                        {!ann.resolved && (
+                          <button
+                            type="button"
+                            onClick={() => focusAnnotation(ann)}
+                            className="text-[11px] text-indigo-600 hover:text-indigo-800"
+                          >
+                            Ver en editor
+                          </button>
+                        )}
+                        <span className="text-[10px] text-slate-400">
+                          {new Date(ann.createdAt).toLocaleString()}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-          </div>
+                  );
+                })}
+            </div>
+          )}
         </aside>
       </main>
 
