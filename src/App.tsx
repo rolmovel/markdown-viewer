@@ -44,17 +44,6 @@ function findNodeById(node: TreeNode, id: string): TreeNode | null {
   return null;
 }
 
-// Buscar nodo por docUrl (para enlazar historial compartido)
-function findNodeByDocUrl(node: TreeNode, docUrl: AutomergeUrl): TreeNode | null {
-  if (node.docUrl === docUrl) return node;
-  if (!node.children) return null;
-  for (const child of node.children) {
-    const found = findNodeByDocUrl(child, docUrl);
-    if (found) return found;
-  }
-  return null;
-}
-
 function App() {
   const repo = useRepo();
   const [viewMode, setViewMode] = useState<'split' | 'edit' | 'preview'>('split');
@@ -120,8 +109,8 @@ function App() {
     }
   }, [repo, treeParam, treeUrl, isCreatingTree]);
 
-  // Hook para el árbol de directorios
-  const [treeDoc, changeTreeDoc] = useDocument<DirectoryTreeDoc>(treeUrl ?? undefined);
+  // Hook para el árbol de directorios (aunque la UI de árbol no se muestre, el doc sigue existiendo)
+  const [treeDoc] = useDocument<DirectoryTreeDoc>(treeUrl ?? undefined);
 
   // Sincronizar currentDocUrl con el parámetro doc
   useEffect(() => {
@@ -428,95 +417,7 @@ function App() {
     }
   };
 
-  const insertKrokiTemplate = (kind: string) => {
-    switch (kind) {
-      case 'plantuml':
-        insertBlock('\n```plantuml\n@startuml\nstart\n:Acción 1;\n:Acción 2;\nstop\n@enduml\n```\n');
-        break;
-      case 'c4plantuml':
-        insertBlock(
-          '\n```c4plantuml\n' +
-          '@startuml C4_Elements\n' +
-          '!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml\n\n' +
-          'Person(personAlias, "Label", "Optional Description")\n' +
-          'Container(containerAlias, "Label", "Technology", "Optional Description")\n' +
-          'System(systemAlias, "Label", "Optional Description")\n\n' +
-          'Rel(personAlias, containerAlias, "Label", "Optional Technology")\n' +
-          '@enduml\n' +
-          '```\n'
-        );
-        break;
-      case 'structurizr':
-        insertBlock('\n```structurizr\nworkspace "Ejemplo" {\n  model {\n    user = person "Usuario"\n    system = softwareSystem "Sistema"\n    user -> system "Usa"\n  }\n}\n```\n');
-        break;
-      case 'dot':
-        insertBlock('\n```dot\ndigraph G {\n  A -> B;\n  B -> C;\n}\n```\n');
-        break;
-      case 'd2':
-        insertBlock('\n```d2\nA: "Inicio"\nB: "Fin"\nA -> B: "flujo"\n```\n');
-        break;
-      case 'erd':
-        insertBlock('\n```erd\n[Usuario] {\n  *id\n  nombre\n}\n[Pedido] {\n  *id\n  fecha\n}\nUsuario ||--o{ Pedido\n```\n');
-        break;
-      case 'bpmn':
-        insertBlock('\n```bpmn\n<bpmn:definitions ...>\n  <!-- Diagrama BPMN aquí -->\n</bpmn:definitions>\n```\n');
-        break;
-      case 'blockdiag':
-        insertBlock('\n```blockdiag\nblockdiag {\n  A -> B -> C;\n}\n```\n');
-        break;
-      case 'seqdiag':
-        insertBlock('\n```seqdiag\nseqdiag {\n  A -> B [label = "mensaje"];\n}\n```\n');
-        break;
-      case 'actdiag':
-        insertBlock('\n```actdiag\nactdiag {\n  A -> B -> C;\n}\n```\n');
-        break;
-      case 'nwdiag':
-        insertBlock('\n```nwdiag\nnwdiag {\n  network net {\n    server1; server2;\n  }\n}\n```\n');
-        break;
-      case 'packetdiag':
-        insertBlock('\n```packetdiag\npacketdiag {\n  0-15: Header;\n  16-31: Data;\n}\n```\n');
-        break;
-      case 'rackdiag':
-        insertBlock('\n```rackdiag\nrackdiag {\n  1: Server1;\n  2: Server2;\n}\n```\n');
-        break;
-      case 'bytefield':
-        insertBlock('\n```bytefield\nbytefield {\n  0-7: Campo1;\n  8-15: Campo2;\n}\n```\n');
-        break;
-      case 'nomnoml':
-        insertBlock('\n```nomnoml\n[Usuario]->[Sistema]\n```\n');
-        break;
-      case 'pikchr':
-        insertBlock('\n```pikchr\nbox "Inicio"; arrow; box "Fin";\n```\n');
-        break;
-      case 'svgbob':
-        insertBlock('\n```svgbob\n+----+    +----+\n| A  |--> | B  |\n+----+    +----+\n```\n');
-        break;
-      case 'symbolator':
-        insertBlock('\n```symbolator\nmodule top();\n  // Señales aquí\nendmodule\n```\n');
-        break;
-      case 'umlet':
-        insertBlock('\n```umlet\n@startuml\n:Actividad;\n@enduml\n```\n');
-        break;
-      case 'vega':
-        insertBlock('\n```vega\n{\n  "$schema": "https://vega.github.io/schema/vega/v5.json",\n  "description": "Gráfico ejemplo",\n  "data": [{ "name": "table", "values": [ {"x": 1, "y": 2} ] }]\n}\n```\n');
-        break;
-      case 'vegalite':
-        insertBlock('\n```vegalite\n{\n  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",\n  "description": "Gráfico ejemplo",\n  "data": {"values": [ {"x": 1, "y": 2} ]},\n  "mark": "bar",\n  "encoding": {"x": {"field": "x", "type": "quantitative"}, "y": {"field": "y", "type": "quantitative"}}\n}\n```\n');
-        break;
-      case 'wavedrom':
-        insertBlock('\n```wavedrom\n{ signal: [ { name: "clk", wave: "p...." } ] }\n```\n');
-        break;
-      case 'wireviz':
-        insertBlock('\n```wireviz\nconnectors:\n  J1: { type: D-Sub, size: 9 }\n```\n');
-        break;
-      case 'ditaa':
-        insertBlock('\n```ditaa\n+--------+\n|  A     |\n+---+----+\n    |\n+---v----+\n|   B    |\n+--------+\n```\n');
-        break;
-      default:
-        insertBlock(`\n\n\`\`\`${kind}\n// TODO: escribe tu diagrama ${kind} aquí\n\`\`\`\n`);
-        break;
-    }
-  };
+  // insertKrokiTemplate existía para plantillas Kroki, pero actualmente no se usa en la UI
 
   const insertLink = () => {
     const url = window.prompt('URL del enlace:');
